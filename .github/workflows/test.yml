@@ -126,6 +126,12 @@ jobs:
     if: github.event_name == 'pull_request'
 
     steps:
+    - name: Check if secrets are available
+      run: |
+        if [ -z "${{ secrets.R2_ACCESS_KEY_ID }}" ]; then
+          echo "Secrets not available for PR, skipping test"
+          exit 0
+        fi
     - name: Checkout code
       uses: actions/checkout@v4
 
