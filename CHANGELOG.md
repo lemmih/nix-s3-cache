@@ -54,4 +54,4 @@ When creating a new release:
 
 ### Security
 
-[Unreleased]: https://github.com/lemmih/nix-s3-cache/compare/HEAD...HEAD
+[Unreleased]: https://github.com/lemmih/nix-s3-cache/commits/HEAD
