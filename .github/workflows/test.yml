@@ -19,27 +19,32 @@ jobs:
 
     - name: Try to setup cache without Nix
       id: setup
-      uses: ./.github/actions/setup-nix-s3-cache
-      continue-on-error: true
-      with:
-        s3-endpoint: https://example.com
-        bucket: dummy-bucket
-        public-key: dummy:key
-        aws-access-key-id: dummy-key
-        aws-secret-access-key: dummy-secret
-
-    - name: Check that action failed with correct error message
       run: |
-        if [ "${{ steps.setup.outcome }}" == "failure" ]; then
-          ERROR_MSG="${{ steps.setup.outputs.error-message }}"
-          if echo "$ERROR_MSG" | grep -q "Nix is not installed"; then
-            echo "✅ Action correctly failed with informative error message"
+        export INPUT_S3_ENDPOINT="https://example.com"
+        export INPUT_BUCKET="dummy-bucket"
+        export INPUT_PUBLIC_KEY="dummy:key"
+        export INPUT_AWS_ACCESS_KEY_ID="dummy-key"
+        export INPUT_AWS_SECRET_ACCESS_KEY="dummy-secret"
+        if output=$(bash .github/test-error.sh 2>&1); then
+          echo "::set-output name=should_have_failed::true"
+          echo "::set-output name=output::$output"
+        else
+          echo "::set-output name=should_have_failed::false"
+          echo "::set-output name=output::$output"
+        fi
+      continue-on-error: true
+
+    - name: Check that script failed with correct error message
+      run: |
+        if [ "${{ steps.setup.outputs.should_have_failed }}" == "false" ]; then
+          if echo "${{ steps.setup.outputs.output }}" | grep -q "Nix is not installed"; then
+            echo "✅ Script correctly failed with informative error message"
           else
-            echo "❌ Action failed but with wrong error message: $ERROR_MSG"
+            echo "❌ Script failed but with wrong error message: ${{ steps.setup.outputs.output }}"
             exit 1
           fi
         else
-          echo "❌ Action should have failed when Nix is not installed"
+          echo "❌ Script should have failed when Nix is not installed"
           exit 1
         fi
 

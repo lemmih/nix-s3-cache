@@ -22,9 +22,6 @@ inputs:
   region:
     description: 'AWS region (optional, uses AWS_DEFAULT_REGION or AWS_REGION env if not provided)'
     required: false
-outputs:
-  error-message:
-    description: 'Error message if the action failed'
 runs:
   using: 'composite'
   steps:
@@ -43,9 +40,7 @@ runs:
 
         # Check if Nix is installed
         if ! command -v nix >/dev/null 2>&1; then
-          ERROR_MSG="Error: Nix is not installed. Please install Nix first using DeterminateSystems/nix-installer-action (https://github.com/DeterminateSystems/nix-installer-action)."
-          echo "$ERROR_MSG"
-          echo "::set-output name=error-message::$ERROR_MSG"
+          echo "Error: Nix is not installed. Please install Nix first using DeterminateSystems/nix-installer-action (https://github.com/DeterminateSystems/nix-installer-action)."
           exit 1
         fi
 
