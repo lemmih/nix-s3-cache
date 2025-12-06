@@ -20,13 +20,6 @@ jobs:
     - name: Install Determinate Nix
       uses: DeterminateSystems/nix-installer-action@main
 
-    - name: Configure AWS Credentials for R2
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        aws-region: auto
-
     - name: Setup Nix S3 Cache
       uses: ./.github/actions/setup-nix-s3-cache
       with:
@@ -34,12 +27,17 @@ jobs:
         bucket: ${{ env.R2_BUCKET }}
         public-key: ${{ secrets.NIX_CACHE_PUBLIC_KEY }}
         private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+        aws-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
 
     - name: Build test package
       run: nix build nixpkgs#hello
       timeout-minutes: 10
 
     - name: Verify cache upload
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       run: |
         # Wait a moment for upload to complete
         sleep 5
