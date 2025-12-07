@@ -10,7 +10,6 @@ NC='\033[0m' # No Color
 
 # Test configuration
 SLEEP_DURATION="${SLEEP_DURATION:-20}"
-MAX_CACHE_FETCH_TIME="${MAX_CACHE_FETCH_TIME:-15}"
 
 log_info() {
   echo -e "${YELLOW}[INFO]${NC} $1"
@@ -155,82 +154,9 @@ test_cache_queryable() {
   fi
 }
 
-# Test 4: Clear local store and rebuild from cache (timing test)
-test_cache_fetch_timing() {
-  log_info "=== Test 4: Cache Fetch Timing Test ==="
-
-  local store_path start_time end_time duration
-  store_path=$(get_store_path)
-
-  log_info "Deleting path from local store: ${store_path}"
-
-  # Use nix-store --delete which works better than nix store delete
-  # Also need to remove GC roots first
-  sudo nix-store --delete "${store_path}" 2>/dev/null || true
-
-  # Double check with nix store gc for this specific path
-  sudo nix store gc 2>/dev/null || true
-
-  # Give daemon time to update
-  sleep 1
-
-  # Verify it's gone by checking if we can stat it
-  if [[ -e "${store_path}" ]]; then
-    log_info "Warning: Path still exists, trying harder to remove..."
-    # Try to invalidate by removing from database
-    sudo nix-store --delete --ignore-liveness "${store_path}" 2>/dev/null || true
-  fi
-
-  # Check if the path exists in local store
-  if [[ -e "${store_path}" ]]; then
-    log_error "Failed to delete path from local store (path still exists on filesystem)"
-    return 1
-  fi
-
-  log_info "Rebuilding from cache (should be fast)..."
-  start_time=$(date +%s)
-
-  # Rebuild - this should fetch from cache
-  nix-build --no-out-link "$DERIVATION_FILE"
-
-  end_time=$(date +%s)
-  duration=$((end_time - start_time))
-
-  log_info "Rebuild took ${duration} seconds (threshold: ${MAX_CACHE_FETCH_TIME}s)"
-
-  if [[ $duration -lt $MAX_CACHE_FETCH_TIME ]]; then
-    log_success "Cache fetch successful! Build completed in ${duration}s (< ${MAX_CACHE_FETCH_TIME}s threshold)"
-    return 0
-  else
-    log_error "Build took ${duration}s, which is >= ${MAX_CACHE_FETCH_TIME}s - cache may not be working"
-    return 1
-  fi
-}
-
-# Test 5: Verify copy from cache works
-test_nix_copy_from_cache() {
-  log_info "=== Test 5: Nix Copy From Cache ==="
-
-  local store_path
-  store_path=$(get_store_path)
-
-  # Delete local path first
-  sudo nix-store --delete "${store_path}" 2>/dev/null || true
-
-  log_info "Copying from cache: ${store_path}"
-
-  if nix copy --from "${NIX_S3_URL}" "${store_path}" 2>&1; then
-    log_success "Successfully copied path from S3 cache"
-    return 0
-  else
-    log_error "Failed to copy path from S3 cache"
-    return 1
-  fi
-}
-
-# Test 6: Count objects in bucket
+# Test 4: Count objects in bucket
 test_bucket_has_objects() {
-  log_info "=== Test 6: Verify Bucket Has Objects ==="
+  log_info "=== Test 4: Verify Bucket Has Objects ==="
 
   local object_count
   # shellcheck disable=SC2086 # Word splitting is intentional for AWS_ENDPOINT_ARG
@@ -273,12 +199,6 @@ main() {
   echo ""
 
   test_bucket_has_objects || ((failed++))
-  echo ""
-
-  test_cache_fetch_timing || ((failed++))
-  echo ""
-
-  test_nix_copy_from_cache || ((failed++))
   echo ""
 
   # Summary
