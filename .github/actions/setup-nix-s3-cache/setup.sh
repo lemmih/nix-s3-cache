@@ -21,6 +21,16 @@ AWS_SESSION_TOKEN="${INPUT_AWS_SESSION_TOKEN:-${AWS_SESSION_TOKEN:-}}"
 AWS_DEFAULT_REGION="${INPUT_REGION:-${AWS_DEFAULT_REGION:-${AWS_REGION:-us-east-1}}}"
 INPUT_CREATE_BUCKET="${INPUT_CREATE_BUCKET:-false}"
 
+# Determine if we need --endpoint-url (not needed for native AWS S3)
+# Also build the Nix S3 URL parameters accordingly
+if [[ "$INPUT_S3_ENDPOINT" == "s3.amazonaws.com" || "$INPUT_S3_ENDPOINT" == s3.*.amazonaws.com ]]; then
+  ENDPOINT_URL_ARG=""
+  NIX_S3_PARAMS="region=${AWS_DEFAULT_REGION}"
+else
+  ENDPOINT_URL_ARG="--endpoint-url https://${INPUT_S3_ENDPOINT}"
+  NIX_S3_PARAMS="endpoint=${INPUT_S3_ENDPOINT}"
+fi
+
 if [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECRET_ACCESS_KEY" ]; then
   sudo mkdir -p /root/.aws
   {
@@ -42,10 +52,12 @@ if [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECRET_ACCESS_KEY" ]; then
   fi
 
   # Check if bucket exists
-  if ! aws s3 ls "s3://${INPUT_BUCKET}/" --endpoint-url "https://${INPUT_S3_ENDPOINT}" >/dev/null 2>&1; then
+  # shellcheck disable=SC2086 # Word splitting is intentional for ENDPOINT_URL_ARG
+  if ! aws s3 ls "s3://${INPUT_BUCKET}/" $ENDPOINT_URL_ARG >/dev/null 2>&1; then
     if [ "$INPUT_CREATE_BUCKET" = "true" ]; then
       echo "Bucket '${INPUT_BUCKET}' does not exist. Creating..."
-      aws s3 mb "s3://${INPUT_BUCKET}" --endpoint-url "https://${INPUT_S3_ENDPOINT}"
+      # shellcheck disable=SC2086 # Word splitting is intentional for ENDPOINT_URL_ARG
+      aws s3 mb "s3://${INPUT_BUCKET}" $ENDPOINT_URL_ARG
     else
       echo "Error: S3 bucket '${INPUT_BUCKET}' does not exist or is not accessible with the provided credentials."
       exit 1
@@ -79,13 +91,13 @@ fi
   printf '%s\n' \
     '' \
     'echo "Uploading to S3: $OUT_PATHS"' \
-    "exec /nix/var/nix/profiles/default/bin/nix copy --to \"s3://${INPUT_BUCKET}?endpoint=${INPUT_S3_ENDPOINT}${SECRET_KEY_PARAM}&compression=zstd\" \$OUT_PATHS"
+    "exec /nix/var/nix/profiles/default/bin/nix copy --to \"s3://${INPUT_BUCKET}?${NIX_S3_PARAMS}${SECRET_KEY_PARAM}&compression=zstd\" \$OUT_PATHS"
 } | sudo tee /etc/nix/post-build-hook.sh >/dev/null
 sudo chmod +x /etc/nix/post-build-hook.sh
 
 # Configure Nix
 sudo tee -a "$CONFIG_FILE" >/dev/null <<EOF
-extra-substituters = s3://${INPUT_BUCKET}?endpoint=${INPUT_S3_ENDPOINT}
+extra-substituters = s3://${INPUT_BUCKET}?${NIX_S3_PARAMS}
 extra-trusted-public-keys = ${INPUT_PUBLIC_KEY}
 post-build-hook = /etc/nix/post-build-hook.sh
 EOF
