@@ -217,8 +217,18 @@ jobs:
         public-key: ${{ secrets.NIX_CACHE_PUBLIC_KEY }}
         private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
 
-    - name: Build test package
-      run: nix build nixpkgs#hello
+    - name: Build unique test derivation
+      run: |
+        # Build a unique derivation that won't be in any cache
+        # This ensures the post-build hook is triggered
+        nix build --impure --expr "
+          derivation {
+            name = \"nix-s3-cache-test-${{ github.run_id }}\";
+            system = builtins.currentSystem;
+            builder = \"/bin/sh\";
+            args = [ \"-c\" \"echo 'Test derivation for run ${{ github.run_id }}' > \$out\" ];
+          }
+        "
       timeout-minutes: 10
 
     - name: Verify cache upload
@@ -235,6 +245,12 @@ jobs:
           echo "❌ Cache upload failed: no objects found in bucket"
           exit 1
         fi
+
+    - name: Cleanup test objects
+      if: always()
+      run: |
+        # Delete test objects from bucket to keep it clean
+        aws s3 rm s3://${{ env.AWS_BUCKET }}/ --recursive || true
 
   test-cache-tebi:
     runs-on: ubuntu-24.04
