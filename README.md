@@ -1,10 +1,22 @@
-# nix-s3-cache
+# nix-s3-cache 🚀
 
-Like Cachix - but without the steep price.
+We love Nix! ❄️ Reproducible builds, declarative configs, and that warm fuzzy feeling when `nix build` just works.
 
-GitHub Action for caching Nix derivations with S3-compatible storage. Works with vanilla Nix and Determinate Nix.
+But let's be honest - without caching, your CI will spend more time compiling than a philosophy major spends contemplating existence. ☕
 
-## S3 Providers with Free Tiers
+This GitHub Action hooks up your Nix builds to any S3-compatible storage, so you can stop recompiling the universe on every push.
+
+## 🤔 Alternatives
+
+There are other great caching solutions out there:
+
+- **[Cachix](https://www.cachix.org/)** - The OG Nix cache. Polished and reliable, but can get pricey for larger teams.
+- **[Magic Nix Cache](https://github.com/DeterminateSystems/magic-nix-cache)** - Zero-config caching using GitHub Actions cache. Super convenient, but limited to 10 GiB and artifacts expire after 7 days.
+- **[FlakeHub Cache](https://flakehub.com/)** - Integrated with FlakeHub's flake registry. Nice if you're already in that ecosystem.
+
+**nix-s3-cache** gives you full control over your cache with any S3-compatible storage. Bring your own bucket, pay only for what you use (or nothing at all with free tiers! 🎉).
+
+## 💸 S3 Providers with Free Tiers
 
 | Provider | Free Storage |
 |----------|--------------|
