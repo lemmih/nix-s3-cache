@@ -8,9 +8,6 @@ GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 NC='\033[0m' # No Color
 
-# Test configuration
-SLEEP_DURATION="${SLEEP_DURATION:-20}"
-
 log_info() {
   echo -e "${YELLOW}[INFO]${NC} $1"
 }
@@ -72,28 +69,19 @@ DERIVATION_NAME="nix-s3-cache-test-${RUN_ID}"
 DERIVATION_FILE=$(mktemp --suffix=.nix)
 trap 'rm -f "$DERIVATION_FILE"' EXIT
 
-# Use a proper derivation with coreutils for sleep
+# Create a simple unique derivation
 cat >"$DERIVATION_FILE" <<EOF
 let
   pkgs = import <nixpkgs> {};
 in
 pkgs.runCommand "${DERIVATION_NAME}" {} ''
-  \${pkgs.coreutils}/bin/sleep ${SLEEP_DURATION}
   echo "test-output-${RUN_ID}" > \$out
 ''
 EOF
 
-build_slow_derivation() {
-  log_info "Building slow derivation '${DERIVATION_NAME}' (takes ${SLEEP_DURATION}s)..."
-  local start_time end_time duration
-
-  start_time=$(date +%s)
+build_derivation() {
+  log_info "Building test derivation '${DERIVATION_NAME}'..."
   nix-build --no-out-link "$DERIVATION_FILE"
-  end_time=$(date +%s)
-  duration=$((end_time - start_time))
-
-  log_info "Initial build took ${duration} seconds"
-  echo "$duration"
 }
 
 get_store_path() {
@@ -104,7 +92,7 @@ get_store_path() {
 test_build_and_upload() {
   log_info "=== Test 1: Build and Upload ==="
 
-  build_slow_derivation
+  build_derivation
 
   # Wait for post-build hook to complete upload
   log_info "Waiting for upload to complete..."
