@@ -204,7 +204,7 @@ jobs:
       uses: aws-actions/configure-aws-credentials@v4
       with:
         role-to-assume: arn:aws:iam::893216290718:role/github-s3
-        aws-region: us-east-1
+        aws-region: us-east-2
 
     - name: Install Determinate Nix
       uses: DeterminateSystems/nix-installer-action@e4fb5e65d88bc1ed7f248eda4e6645126ed90438 # main
