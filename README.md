@@ -1,57 +1,175 @@
-# nix-s3-cache
+# nix-s3-cache 🚀
 
-GitHub Action for caching Nix derivations with S3
+We love Nix! ❄️ Reproducible builds, declarative configs, and that warm fuzzy feeling when `nix build` just works.
 
-## Usage
+But let's be honest - without caching, your CI will spend more time compiling than a philosophy major spends contemplating existence. ☕
 
-This action configures Nix to use an S3-backed cache for both downloading and uploading derivations. It works with both vanilla Nix and Determinate Nix by detecting the appropriate configuration file.
+This GitHub Action hooks up your Nix builds to any S3-compatible storage, so you can stop recompiling the universe on every push.
 
-### Basic Example
+## 🤔 Alternatives
 
-```yaml
-- name: Install Nix
-  uses: DeterminateSystems/nix-installer-action@main
+There are other great caching solutions out there:
 
-- name: Configure AWS Credentials
-  uses: aws-actions/configure-aws-credentials@v4
-  with:
-    aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-    aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-    aws-region: us-east-1
+- **[Cachix](https://www.cachix.org/)** - The OG Nix cache. Polished and reliable, but can get pricey for larger teams.
+- **[Magic Nix Cache](https://github.com/DeterminateSystems/magic-nix-cache)** - Zero-config caching using GitHub Actions cache. Super convenient, but limited to 10 GiB and artifacts expire after 7 days.
+- **[FlakeHub Cache](https://flakehub.com/)** - Integrated with FlakeHub's flake registry. Nice if you're already in that ecosystem.
 
-- name: Setup Nix S3 Cache
-  uses: ./.github/actions/setup-nix-s3-cache
-  with:
-    s3-endpoint: https://s3.amazonaws.com
-    bucket: my-nix-cache
-    public-key: my-cache:public-key-here
-    private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+**nix-s3-cache** gives you full control over your cache with any S3-compatible storage. Bring your own bucket, pay only for what you use (or nothing at all with free tiers! 🎉).
+
+## 💸 S3 Providers with Free Tiers
+
+| Provider | Free Storage |
+|----------|--------------|
+| [Tebi](https://tebi.io/) | 25 GiB |
+| [Cloudflare R2](https://www.cloudflare.com/developer-platform/r2/) | 10 GiB |
+| [AWS S3](https://aws.amazon.com/s3/) | 5 GiB |
+
+## Inputs
+
+| Input | Required | Description |
+|-------|----------|-------------|
+| `s3-endpoint` | Yes | S3 endpoint (e.g., `s3.amazonaws.com`, `<account>.r2.cloudflarestorage.com`) |
+| `bucket` | Yes | S3 bucket name |
+| `public-key` | Yes | Public key for verifying cached derivations |
+| `private-key` | No | Private key for signing uploads (omit for read-only) |
+| `aws-access-key-id` | No | Falls back to `AWS_ACCESS_KEY_ID` env var |
+| `aws-secret-access-key` | No | Falls back to `AWS_SECRET_ACCESS_KEY` env var |
+| `aws-session-token` | No | Falls back to `AWS_SESSION_TOKEN` env var (for OIDC/temporary creds) |
+| `region` | No | Falls back to `AWS_DEFAULT_REGION`, `AWS_REGION`, or `us-east-1` |
+| `create-bucket` | No | Create bucket if it doesn't exist (default: `false`) |
+
+## Generating Cache Keys
+
+```bash
+nix key generate-secret --key-name my-cache > cache-priv-key.pem
+nix key convert-secret-to-public < cache-priv-key.pem
+# Output: my-cache:BASE64...
 ```
 
-### With Cloudflare R2
+Store the private key as a GitHub secret (`NIX_CACHE_PRIVATE_KEY`). The public key goes in `public-key`.
+
+## Examples
+
+### AWS S3 with OIDC (Recommended)
+
+Uses temporary credentials via GitHub's OIDC provider. No long-lived secrets required.
 
 ```yaml
-- name: Setup Nix S3 Cache
-  uses: ./.github/actions/setup-nix-s3-cache
-  with:
-    s3-endpoint: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
-    bucket: nix-cache
-    public-key: my-cache:public-key-here
-    private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/GitHubActionsNixCache
+          aws-region: us-east-1
+
+      - uses: lemmih/nix-s3-cache/.github/actions/setup-nix-s3-cache@main
+        with:
+          s3-endpoint: s3.amazonaws.com
+          bucket: my-nix-cache
+          public-key: my-cache:BASE64PUBLIC...
+          private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+
+      - run: nix build
 ```
 
-### Inputs
+IAM policy for the role:
 
-- `s3-endpoint` (required): S3 endpoint URL (e.g., `https://s3.amazonaws.com` or `https://account.r2.cloudflarestorage.com`)
-- `bucket` (required): S3 bucket name
-- `public-key` (required): Public key for verifying cache contents
-- `private-key` (optional): Private key for signing uploads. If omitted, uploads will not be signed.
-- `aws-access-key-id` (optional): AWS access key ID. Defaults to `AWS_ACCESS_KEY_ID` environment variable.
-- `aws-secret-access-key` (optional): AWS secret access key. Defaults to `AWS_SECRET_ACCESS_KEY` environment variable.
-- `region` (optional): AWS region. Defaults to `AWS_DEFAULT_REGION`, `AWS_REGION`, or `us-east-1`.
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:ListBucket"],
+      "Resource": [
+        "arn:aws:s3:::my-nix-cache",
+        "arn:aws:s3:::my-nix-cache/*"
+      ]
+    }
+  ]
+}
+```
 
-## Compatibility
+### AWS S3 with Access Keys
 
-- **Vanilla Nix**: Appends configuration to `/etc/nix/nix.conf`
-- **Determinate Nix**: Appends configuration to `/etc/nix/nix.custom.conf`
-- **AWS Credentials**: Compatible with `aws-actions/configure-aws-credentials`
+Uses static IAM credentials stored as GitHub secrets.
+
+```yaml
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: lemmih/nix-s3-cache/.github/actions/setup-nix-s3-cache@main
+        with:
+          s3-endpoint: s3.amazonaws.com
+          bucket: my-nix-cache
+          region: us-west-2
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          public-key: my-cache:BASE64PUBLIC...
+          private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+
+      - run: nix build
+```
+
+### Cloudflare R2
+
+```yaml
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: lemmih/nix-s3-cache/.github/actions/setup-nix-s3-cache@main
+        with:
+          s3-endpoint: ${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          bucket: nix-cache
+          aws-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          public-key: my-cache:BASE64PUBLIC...
+          private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+
+      - run: nix build
+```
+
+R2 credentials are generated in Cloudflare Dashboard > R2 > Manage R2 API Tokens.
+
+### Tebi
+
+```yaml
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: lemmih/nix-s3-cache/.github/actions/setup-nix-s3-cache@main
+        with:
+          s3-endpoint: s3.tebi.io
+          bucket: nix-cache
+          aws-access-key-id: ${{ secrets.TEBI_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.TEBI_SECRET_KEY }}
+          public-key: my-cache:BASE64PUBLIC...
+          private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+
+      - run: nix build
+```
