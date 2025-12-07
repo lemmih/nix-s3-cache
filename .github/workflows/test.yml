@@ -130,3 +130,61 @@ jobs:
           echo "❌ Cache upload failed: no objects found in bucket"
           exit 1
         fi
+
+  test-create-bucket:
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Determinate Nix
+      uses: DeterminateSystems/nix-installer-action@e4fb5e65d88bc1ed7f248eda4e6645126ed90438 # main
+
+    - name: Generate unique bucket name
+      id: bucket
+      run: echo "name=nix-cache-test-${{ github.run_id }}" >> "$GITHUB_OUTPUT"
+
+    - name: Setup Nix S3 Cache with create-bucket
+      uses: ./.github/actions/setup-nix-s3-cache
+      with:
+        s3-endpoint: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        bucket: ${{ steps.bucket.outputs.name }}
+        public-key: ${{ secrets.NIX_CACHE_PUBLIC_KEY }}
+        private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+        aws-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        create-bucket: true
+
+    - name: Build test package
+      run: nix build nixpkgs#hello
+      timeout-minutes: 10
+
+    - name: Verify cache upload
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      run: |
+        # Wait a moment for upload to complete
+        sleep 5
+
+        # List objects in the bucket to verify upload
+        OBJECT_COUNT=$(aws s3 ls s3://${{ steps.bucket.outputs.name }}/ --endpoint-url https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com --recursive | wc -l)
+
+        if [ "$OBJECT_COUNT" -gt 0 ]; then
+          echo "✅ Cache upload successful: $OBJECT_COUNT objects found in bucket"
+        else
+          echo "❌ Cache upload failed: no objects found in bucket"
+          exit 1
+        fi
+
+    - name: Cleanup test bucket
+      if: always()
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      run: |
+        # Delete all objects in the bucket
+        aws s3 rm s3://${{ steps.bucket.outputs.name }}/ --endpoint-url https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com --recursive || true
+        # Delete the bucket
+        aws s3 rb s3://${{ steps.bucket.outputs.name }} --endpoint-url https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com || true

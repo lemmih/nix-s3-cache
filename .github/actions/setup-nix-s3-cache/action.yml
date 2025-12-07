@@ -22,6 +22,9 @@ inputs:
   region:
     description: 'AWS region (optional, uses AWS_DEFAULT_REGION or AWS_REGION env if not provided)'
     required: false
+  create-bucket:
+    description: 'Create the S3 bucket if it does not exist (default: false)'
+    required: false
 runs:
   using: 'composite'
   steps:
@@ -35,4 +38,5 @@ runs:
         INPUT_AWS_ACCESS_KEY_ID: ${{ inputs.aws-access-key-id }}
         INPUT_AWS_SECRET_ACCESS_KEY: ${{ inputs.aws-secret-access-key }}
         INPUT_REGION: ${{ inputs.region }}
+        INPUT_CREATE_BUCKET: ${{ inputs.create-bucket }}
       run: bash $GITHUB_ACTION_PATH/setup.sh

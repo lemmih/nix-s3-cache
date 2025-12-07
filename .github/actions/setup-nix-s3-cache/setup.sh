@@ -18,6 +18,7 @@ fi
 AWS_ACCESS_KEY_ID="${INPUT_AWS_ACCESS_KEY_ID:-${AWS_ACCESS_KEY_ID}}"
 AWS_SECRET_ACCESS_KEY="${INPUT_AWS_SECRET_ACCESS_KEY:-${AWS_SECRET_ACCESS_KEY}}"
 AWS_DEFAULT_REGION="${INPUT_REGION:-${AWS_DEFAULT_REGION:-${AWS_REGION:-us-east-1}}}"
+INPUT_CREATE_BUCKET="${INPUT_CREATE_BUCKET:-false}"
 
 if [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECRET_ACCESS_KEY" ]; then
   sudo mkdir -p /root/.aws
@@ -34,8 +35,13 @@ if [ -n "$AWS_ACCESS_KEY_ID" ] && [ -n "$AWS_SECRET_ACCESS_KEY" ]; then
 
   # Check if bucket exists
   if ! aws s3 ls "s3://${INPUT_BUCKET}/" --endpoint-url "https://${INPUT_S3_ENDPOINT}" >/dev/null 2>&1; then
-    echo "Error: S3 bucket '${INPUT_BUCKET}' does not exist or is not accessible with the provided credentials."
-    exit 1
+    if [ "$INPUT_CREATE_BUCKET" = "true" ]; then
+      echo "Bucket '${INPUT_BUCKET}' does not exist. Creating..."
+      aws s3 mb "s3://${INPUT_BUCKET}" --endpoint-url "https://${INPUT_S3_ENDPOINT}"
+    else
+      echo "Error: S3 bucket '${INPUT_BUCKET}' does not exist or is not accessible with the provided credentials."
+      exit 1
+    fi
   fi
 fi
 
