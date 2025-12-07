@@ -39,13 +39,13 @@ jobs:
       run: |
         if [ "${{ steps.setup.outputs.should_have_failed }}" == "false" ]; then
           if echo "${{ steps.setup.outputs.output }}" | grep -q "Nix is not installed"; then
-            echo "✅ Script correctly failed with informative error message"
+            echo "Script correctly failed with informative error message"
           else
-            echo "❌ Script failed but with wrong error message: ${{ steps.setup.outputs.output }}"
+            echo "Script failed but with wrong error message: ${{ steps.setup.outputs.output }}"
             exit 1
           fi
         else
-          echo "❌ Script should have failed when Nix is not installed"
+          echo "Script should have failed when Nix is not installed"
           exit 1
         fi
 
@@ -80,17 +80,17 @@ jobs:
       run: |
         if [ "${{ steps.setup.outputs.should_have_failed }}" == "false" ]; then
           if echo "${{ steps.setup.outputs.output }}" | grep -q "bucket.*does not exist"; then
-            echo "✅ Script correctly failed with bucket error message"
+            echo "Script correctly failed with bucket error message"
           else
-            echo "❌ Script failed but with wrong error message: ${{ steps.setup.outputs.output }}"
+            echo "Script failed but with wrong error message: ${{ steps.setup.outputs.output }}"
             exit 1
           fi
         else
-          echo "❌ Script should have failed with non-existent bucket"
+          echo "Script should have failed with non-existent bucket"
           exit 1
         fi
 
-  test-cache:
+  test-cache-r2:
     runs-on: ubuntu-24.04
 
     steps:
@@ -110,27 +110,26 @@ jobs:
         aws-access-key-id: ${{ secrets.R2_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
 
-    - name: Build test package
-      run: nix build nixpkgs#hello
-      timeout-minutes: 10
-
-    - name: Verify cache upload
+    - name: Run cache tests
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       run: |
-        # Wait a moment for upload to complete
-        sleep 5
+        bash .github/scripts/test-cache.sh \
+          --endpoint "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
+          --bucket "${{ env.R2_BUCKET }}" \
+          --run-id "${{ github.run_id }}-r2"
+      timeout-minutes: 10
 
-        # List objects in the bucket to verify upload
-        OBJECT_COUNT=$(aws s3 ls s3://${{ env.R2_BUCKET }}/ --endpoint-url https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com --recursive | wc -l)
-
-        if [ "$OBJECT_COUNT" -gt 0 ]; then
-          echo "✅ Cache upload successful: $OBJECT_COUNT objects found in bucket"
-        else
-          echo "❌ Cache upload failed: no objects found in bucket"
-          exit 1
-        fi
+    - name: Cleanup test objects
+      if: always()
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      run: |
+        aws s3 rm "s3://${{ env.R2_BUCKET }}/" \
+          --endpoint-url "https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
+          --recursive || true
 
   test-create-bucket:
     runs-on: ubuntu-24.04
@@ -157,27 +156,16 @@ jobs:
         aws-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         create-bucket: true
 
-    - name: Build test package
-      run: nix build nixpkgs#hello
-      timeout-minutes: 10
-
-    - name: Verify cache upload
+    - name: Run cache tests
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       run: |
-        # Wait a moment for upload to complete
-        sleep 5
-
-        # List objects in the bucket to verify upload
-        OBJECT_COUNT=$(aws s3 ls s3://${{ steps.bucket.outputs.name }}/ --endpoint-url https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com --recursive | wc -l)
-
-        if [ "$OBJECT_COUNT" -gt 0 ]; then
-          echo "✅ Cache upload successful: $OBJECT_COUNT objects found in bucket"
-        else
-          echo "❌ Cache upload failed: no objects found in bucket"
-          exit 1
-        fi
+        bash .github/scripts/test-cache.sh \
+          --endpoint "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
+          --bucket "${{ steps.bucket.outputs.name }}" \
+          --run-id "${{ github.run_id }}-create"
+      timeout-minutes: 10
 
     - name: Cleanup test bucket
       if: always()
@@ -186,9 +174,12 @@ jobs:
         AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       run: |
         # Delete all objects in the bucket
-        aws s3 rm s3://${{ steps.bucket.outputs.name }}/ --endpoint-url https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com --recursive || true
+        aws s3 rm "s3://${{ steps.bucket.outputs.name }}/" \
+          --endpoint-url "https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
+          --recursive || true
         # Delete the bucket
-        aws s3 rb s3://${{ steps.bucket.outputs.name }} --endpoint-url https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com || true
+        aws s3 rb "s3://${{ steps.bucket.outputs.name }}" \
+          --endpoint-url "https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com" || true
 
   test-cache-aws:
     runs-on: ubuntu-24.04
@@ -217,40 +208,18 @@ jobs:
         public-key: ${{ secrets.NIX_CACHE_PUBLIC_KEY }}
         private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
 
-    - name: Build unique test derivation
+    - name: Run cache tests
       run: |
-        # Build a unique derivation that won't be in any cache
-        # This ensures the post-build hook is triggered
-        nix build --impure --expr "
-          derivation {
-            name = \"nix-s3-cache-test-${{ github.run_id }}\";
-            system = builtins.currentSystem;
-            builder = \"/bin/sh\";
-            args = [ \"-c\" \"echo 'Test derivation for run ${{ github.run_id }}' > \$out\" ];
-          }
-        "
+        bash .github/scripts/test-cache.sh \
+          --endpoint "s3.amazonaws.com" \
+          --bucket "${{ env.AWS_BUCKET }}" \
+          --run-id "${{ github.run_id }}-aws"
       timeout-minutes: 10
-
-    - name: Verify cache upload
-      run: |
-        # Wait a moment for upload to complete
-        sleep 5
-
-        # List objects in the bucket to verify upload
-        OBJECT_COUNT=$(aws s3 ls s3://${{ env.AWS_BUCKET }}/ --recursive | wc -l)
-
-        if [ "$OBJECT_COUNT" -gt 0 ]; then
-          echo "✅ Cache upload successful: $OBJECT_COUNT objects found in bucket"
-        else
-          echo "❌ Cache upload failed: no objects found in bucket"
-          exit 1
-        fi
 
     - name: Cleanup test objects
       if: always()
       run: |
-        # Delete test objects from bucket to keep it clean
-        aws s3 rm s3://${{ env.AWS_BUCKET }}/ --recursive || true
+        aws s3 rm "s3://${{ env.AWS_BUCKET }}/" --recursive || true
 
   test-cache-tebi:
     runs-on: ubuntu-24.04
@@ -272,24 +241,21 @@ jobs:
         aws-access-key-id: ${{ secrets.TEBI_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.TEBI_SECRET_ACCESS_KEY }}
 
-    - name: Build test package
-      run: nix build nixpkgs#hello
-      timeout-minutes: 10
-
-    - name: Verify cache upload
+    - name: Run cache tests
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.TEBI_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.TEBI_SECRET_ACCESS_KEY }}
       run: |
-        # Wait a moment for upload to complete
-        sleep 5
+        bash .github/scripts/test-cache.sh \
+          --endpoint "s3.tebi.io" \
+          --bucket "nix-cache-test" \
+          --run-id "${{ github.run_id }}-tebi"
+      timeout-minutes: 10
 
-        # List objects in the bucket to verify upload
-        OBJECT_COUNT=$(aws s3 ls s3://nix-cache-test/ --endpoint-url https://s3.tebi.io --recursive | wc -l)
-
-        if [ "$OBJECT_COUNT" -gt 0 ]; then
-          echo "✅ Cache upload successful: $OBJECT_COUNT objects found in bucket"
-        else
-          echo "❌ Cache upload failed: no objects found in bucket"
-          exit 1
-        fi
+    - name: Cleanup test objects
+      if: always()
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.TEBI_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.TEBI_SECRET_ACCESS_KEY }}
+      run: |
+        aws s3 rm "s3://nix-cache-test/" --endpoint-url "https://s3.tebi.io" --recursive || true
